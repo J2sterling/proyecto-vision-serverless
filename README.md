@@ -1,4 +1,4 @@
-```markdown
+
 # Plataforma Serverless de Procesamiento de Imágenes con Visión Computacional
 
 Proyecto académico que implementa una **arquitectura serverless** en AWS para procesar imágenes con dos APIs de visión computacional — **Google Cloud Vision** y **Azure AI Vision** —, almacenar los resultados y exponer una API REST segura con comparativa de precisión, latencia y costos.
@@ -61,7 +61,7 @@ parameter_overrides = "GoogleCredentialsJson='{\"type\":\"service_account\",...}
 
 El valor de `GoogleCredentialsJson` es el contenido completo del archivo JSON de la cuenta de servicio de Google, escapado en una sola línea.
 
----
+
 
 ## ⚙️ Instalación de herramientas necesarias
 
