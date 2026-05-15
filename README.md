@@ -139,7 +139,7 @@ proyecto-vision/
 
 3. **Obtener la API Key**:
    ```bash
-   aws apigateway get-api-keys --region us-east-2 --query "items[?name=='ProyectoVisionApiKey'].value" --output text
+   aws apigateway get-api-keys --region us-east-2 --include-values --query "items[?name=='ProyectoVisionApiKey'].value" --output text
    ```
 
 ---
