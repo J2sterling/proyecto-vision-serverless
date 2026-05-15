@@ -1,0 +1,61 @@
+openapi: 3.0.3
+info:
+  title: Plataforma de Visión Computacional Serverless
+  version: 1.0.0
+servers:
+  - url: https://rjhbcmdmfb.execute-api.us-east-2.amazonaws.com/Prod
+    description: Producción
+security:
+  - ApiKeyAuth: []
+paths:
+  /images:
+    post:
+      summary: Subir una imagen para procesar
+      operationId: uploadImage
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '202':
+          description: Imagen aceptada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image_id:
+                    type: string
+  /images/{image_id}:
+    get:
+      summary: Obtener resultados del procesamiento
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resultados de ambas APIs
+  /images/{image_id}/comparison:
+    get:
+      summary: Obtener comparación entre APIs
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reporte de comparación
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key

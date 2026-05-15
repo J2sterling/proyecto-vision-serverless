@@ -1,0 +1,288 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  GoogleCredentialsJson:
+    Type: String
+    NoEcho: true          # Oculta el valor en logs y en la consola
+    Description: "Contenido del archivo JSON de cuenta de servicio de Google Cloud Vision"
+  AzureVisionKey:
+    Type: String
+    NoEcho: true
+    Description: "Clave de suscripción de Azure Computer Vision"
+  AzureVisionEndpoint:
+    Type: String
+    Description: "Endpoint de Azure Computer Vision"
+    Default: "https://eastus.api.cognitive.microsoft.com/"
+Globals:
+  Api:
+    BinaryMediaTypes:
+      - '*/*'
+  Function:
+    Runtime: python3.12
+    MemorySize: 256
+    Timeout: 30
+    Environment:
+      Variables:
+        BUCKET_NAME: !Ref ImageBucket
+        QUEUE_URL: !Ref ProcessingQueue
+        TABLE_NAME: !Ref ResultsTable
+
+Resources:
+  # ====================
+  # S3 – Almacenamiento
+  # ====================
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: proyecto-vision-serverless
+
+  # ====================
+  # SQS – Cola de procesamiento
+  # ====================
+  ProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: imagenes-procesamiento-queue
+
+  # ====================
+  # DynamoDB – Resultados
+  # ====================
+  ResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: resultados-vision
+      AttributeDefinitions:
+        - AttributeName: image_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: image_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  # ====================
+  # Roles IAM 
+  # ====================
+  UploadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rol-upload-image
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: UploadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${ImageBucket}/*"
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ProcessingQueue.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  ProcessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rol-process-image
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ProcessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${ImageBucket}/*"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${ImageBucket}"
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt ProcessingQueue.Arn
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ResultsTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  GetResultRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rol-get-result
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GetResultPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt ResultsTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  CompareRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rol-compare-image
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ComparePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt ResultsTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+
+
+  # ====================
+  # Funciones Lambda
+  # ====================
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: upload-image-lambda
+      CodeUri: upload-image/
+      Handler: app.lambda_handler
+      Role: !GetAtt UploadRole.Arn
+      Events:
+        ImageUploadApi:
+          Type: Api
+          Properties:
+            Path: /images
+            Method: post
+            Auth:                     # ← AÑADE ESTO
+              ApiKeyRequired: true    # ← AÑADE ESTO
+
+  ProcessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: process-image-lambda
+      CodeUri: process-image/
+      Handler: app.lambda_handler
+      Role: !GetAtt ProcessRole.Arn
+      Timeout: 60                    # ← Nuevo: OCR de Azure puede tardar varios segundos
+      Environment:                   # ← Nueva sección
+        Variables:
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: !Ref GoogleCredentialsJson
+          AZURE_VISION_KEY: !Ref AzureVisionKey
+          AZURE_VISION_ENDPOINT: !Ref AzureVisionEndpoint
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ProcessingQueue.Arn
+
+  GetResultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: get-result-lambda
+      CodeUri: get-result/
+      Handler: app.lambda_handler
+      Role: !GetAtt GetResultRole.Arn
+      Events:
+        GetResultApi:
+          Type: Api
+          Properties:
+            Path: /images/{image_id}
+            Method: get
+            Auth:                     # ← AÑADE ESTO
+              ApiKeyRequired: true    # ← AÑADE ESTO
+  CompareFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: compare-lambda
+      CodeUri: compare/
+      Handler: app.lambda_handler
+      Role: !GetAtt CompareRole.Arn
+      Events:
+        CompareApi:
+          Type: Api
+          Properties:
+            Path: /images/{image_id}/comparison
+            Method: get
+            Auth:                     # ← AÑADE ESTO
+              ApiKeyRequired: true    # ← AÑADE ESTO
+
+
+  # ====================
+  # Plan de uso y API Key (Rate Limiting + Autenticación)
+  # ====================
+  ApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      UsagePlanName: ProyectoVisionUsagePlan
+      ApiStages:
+        - ApiId: !Ref ServerlessRestApi
+          Stage: Prod
+      Throttle:
+        BurstLimit: 5          # peticiones máximas en ráfaga
+        RateLimit: 1            # peticiones por segundo
+
+  ApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: ProyectoVisionApiKey
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref ServerlessRestApi
+          StageName: Prod
+
+  ApiKeyAssociation:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ApiKey
+      UsagePlanId: !Ref ApiUsagePlan
+      KeyType: API_KEY

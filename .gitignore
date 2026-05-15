@@ -1,0 +1,9 @@
+samconfig.toml
+.env
+secrets.json
+params.json
+params.txt
+google-credentials.json
+google_string.txt
+*.log
+.aws-sam/
