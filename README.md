@@ -45,7 +45,7 @@ Por seguridad, **no se suben** los archivos que contienen credenciales o configu
 |---------|-----------|----------------------|
 | `samconfig.toml` | Parámetros de despliegue (`parameter_overrides`) con claves de API. | Contiene las credenciales de Google Cloud Vision y Azure AI Vision. |
 | `.env` | Variables de entorno para ejecución local. | Ídem. |
-| `secrets.json` | Parámetros en formato JSON. | Ídem. |
+
 
 ### 📝 Ejemplo del archivo `samconfig.toml`
 
@@ -131,11 +131,11 @@ proyecto-vision/
    ```bash
    sam build
    ```
-2. **Desplegar** (con credenciales):
+2. **Desplegar** :
    ```bash
-   sam deploy --capabilities CAPABILITY_NAMED_IAM --parameter-overrides file://params.txt
+   sam deploy 
    ```
-   (O usando el archivo `samconfig.toml` con `sam deploy`).
+   
 
 3. **Obtener la API Key**:
    ```bash
